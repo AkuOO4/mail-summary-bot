@@ -69,6 +69,88 @@ def send_via_telegram(chat_id, token, text_summary, image_path=None):
         r.raise_for_status()
         return r.json()
 
+def send_via_whatsapp(phone_number_id, access_token, to_phone, text_summary, image_path=None):
+    """
+    Send WhatsApp message via Meta Cloud API. Supports text and image.
+    Args:
+        phone_number_id: Sender phone number ID from Meta
+        access_token: WhatsApp Cloud API access token (long-lived recommended)
+        to_phone: Receiver phone number (E.g., +919876543210)
+        text_summary: Text body
+        image_path: Optional local image path
+    Returns:
+        WhatsApp API JSON response
+    Raises:
+        ValueError: If image_path is invalid or upload fails.
+    """
+    if image_path and not os.path.exists(image_path):
+        raise ValueError(f"Image file not found: {image_path}")
+
+    base_url = f"https://graph.facebook.com/v19.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+
+    # If image to upload
+    if image_path:
+        # 1️⃣ Upload media to get media_id
+        media_upload_url = f"https://graph.facebook.com/v19.0/{phone_number_id}/media"
+        
+        # Determine MIME type (fallback to image/jpeg)
+        mime_type, _ = mimetypes.guess_type(image_path)
+        if not mime_type:
+            mime_type = "image/jpeg"
+        
+        # Get filename (or use dummy)
+        filename = os.path.basename(image_path) or "image.jpg"
+        
+        with open(image_path, "rb") as img:
+            upload_files = {
+                "file": (filename, img, mime_type)
+            }
+            upload_data = {
+                "messaging_product": "whatsapp"
+            }
+            
+            upload_res = requests.post(
+                media_upload_url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                files=upload_files,
+                data=upload_data
+            )
+        
+        upload_res.raise_for_status()
+        media_data = upload_res.json()
+        if "id" not in media_data:
+            raise ValueError(f"Upload failed: {media_data}")
+        media_id = media_data["id"]
+        
+        # 2️⃣ Send image message referencing uploaded media
+        img_payload = {
+            "messaging_product": "whatsapp",
+            "to": to_phone,
+            "type": "image",
+            "image": {
+                "id": media_id,
+                "caption": text_summary
+            }
+        }
+        res = requests.post(base_url, headers=headers, json=img_payload)
+        print("API Response (Image):", res.text)
+        res.raise_for_status()
+        return res.json()
+
+    # Send text message only
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_phone,
+        "type": "text",
+        "text": {"body": text_summary}
+    }
+    res = requests.post(base_url, headers=headers, json=payload)
+    res.raise_for_status()
+    return res.json()
 
 def already_processed(msg_id):
     """Check if a message ID has already been processed."""
